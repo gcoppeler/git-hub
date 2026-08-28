@@ -28,7 +28,11 @@ export function StarHistoryChart({ data }: { data: StarHistoryPoint[] }) {
   }
 
   const rows = data.map((point) => ({
-    capturedAt: point.capturedAt,
+    // ChartTooltipContent only treats the hovered axis value as a real label
+    // when it's a string — otherwise it substitutes the series name from
+    // `config` (e.g. "Stars"), which then breaks `formatDate`. Stringify here
+    // so the tooltip receives the actual date instead of that fallback.
+    capturedAt: new Date(point.capturedAt).toISOString(),
     stars: point.stars,
   }));
 
