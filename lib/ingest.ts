@@ -115,6 +115,16 @@ export async function runIngestion(): Promise<IngestResult> {
         })
         .returning({ id: repos.id });
 
+      // `subscriberCount` (the real watcher count) is intentionally NOT
+      // fetched here. This loop already upserts ~1,000+ repos per run purely
+      // from bulk /search/repositories results; subscribers_count only
+      // exists on the single-repo GET /repos/{owner}/{repo} endpoint, so
+      // capturing it here would mean one extra GitHub API call per repo per
+      // run — multiplying request volume and risking both GitHub rate limits
+      // and this route's maxDuration. Instead it's captured opportunistically
+      // in lib/activity.ts, which already makes that exact per-repo call
+      // on-demand (12h TTL) when a user visits a repo's detail page, and
+      // writes a snapshot there at zero extra API cost.
       await db.insert(repoSnapshots).values({
         repoId: upserted.id,
         stars: row.stars,
