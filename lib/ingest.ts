@@ -1,7 +1,13 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { ingestionRuns, repoSnapshots, repos } from "@/lib/db/schema";
-import { GitHubSearchRepoItem, searchRepositories, sleep } from "@/lib/github";
+import {
+  GitHubSearchRepoItem,
+  getSubscriberCount,
+  mapWithConcurrency,
+  searchRepositories,
+  sleep,
+} from "@/lib/github";
 
 /** Languages tracked individually so the "trending" set isn't dominated by JS/Python alone. */
 export const TRACKED_LANGUAGES = [
@@ -30,6 +36,25 @@ export const TRACKED_LANGUAGES = [
 const OVERALL_PAGES = 3; // top 300 overall by stars
 const PER_LANGUAGE_RESULTS = 50;
 const SEARCH_DELAY_MS = 2200; // stay under the 30 req/min GitHub Search API limit
+
+// Real "watchers" (subscribers_count) requires one GET /repos/{owner}/{repo}
+// call per repo — not available on bulk /search/repositories results. We run
+// these with limited concurrency and stop starting new ones once the time
+// budget below is spent, so a slow run degrades gracefully (some repos just
+// miss a day of watcher history) instead of risking the route's maxDuration.
+const SUBSCRIBER_FETCH_CONCURRENCY = 15;
+const SUBSCRIBER_FETCH_BUDGET_MS = 180_000; // 3 minutes, leaving headroom under maxDuration
+
+// Chunk size for bulk inserts — keeps each statement's parameter count well
+// under Postgres's limit while cutting round trips from ~1 per repo to ~10
+// total for a run of ~1,100 repos.
+const DB_BATCH_SIZE = 200;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
 
 function toRepoRow(item: GitHubSearchRepoItem) {
   return {
@@ -84,54 +109,73 @@ export async function runIngestion(): Promise<IngestResult> {
     }
 
     const uniqueItems = [...byId.values()];
+    const rows = uniqueItems.map(toRepoRow);
 
-    for (const item of uniqueItems) {
-      const row = toRepoRow(item);
-      const [upserted] = await db
+    // Bulk upsert in chunks rather than one round trip per repo — with
+    // ~1,100 tracked repos, per-row inserts would themselves eat most of the
+    // time budget, leaving nothing for the subscriber-count fetch below.
+    const idByGithubId = new Map<number, number>();
+    for (const batch of chunk(rows, DB_BATCH_SIZE)) {
+      const upserted = await db
         .insert(repos)
-        .values(row)
+        .values(batch)
         .onConflictDoUpdate({
           target: repos.githubId,
           set: {
-            fullName: row.fullName,
-            owner: row.owner,
-            name: row.name,
-            description: row.description,
-            htmlUrl: row.htmlUrl,
-            homepage: row.homepage,
-            avatarUrl: row.avatarUrl,
-            language: row.language,
-            topics: row.topics,
-            license: row.license,
-            stars: row.stars,
-            forks: row.forks,
-            watchers: row.watchers,
-            openIssues: row.openIssues,
-            defaultBranch: row.defaultBranch,
-            isArchived: row.isArchived,
-            repoPushedAt: row.repoPushedAt,
-            ingestedAt: row.ingestedAt,
+            fullName: sql`excluded.full_name`,
+            owner: sql`excluded.owner`,
+            name: sql`excluded.name`,
+            description: sql`excluded.description`,
+            htmlUrl: sql`excluded.html_url`,
+            homepage: sql`excluded.homepage`,
+            avatarUrl: sql`excluded.avatar_url`,
+            language: sql`excluded.language`,
+            topics: sql`excluded.topics`,
+            license: sql`excluded.license`,
+            stars: sql`excluded.stars`,
+            forks: sql`excluded.forks`,
+            watchers: sql`excluded.watchers`,
+            openIssues: sql`excluded.open_issues`,
+            defaultBranch: sql`excluded.default_branch`,
+            isArchived: sql`excluded.is_archived`,
+            repoPushedAt: sql`excluded.repo_pushed_at`,
+            ingestedAt: sql`excluded.ingested_at`,
           },
         })
-        .returning({ id: repos.id });
+        .returning({ id: repos.id, githubId: repos.githubId });
+      for (const row of upserted) idByGithubId.set(row.githubId, row.id);
+    }
 
-      // `subscriberCount` (the real watcher count) is intentionally NOT
-      // fetched here. This loop already upserts ~1,000+ repos per run purely
-      // from bulk /search/repositories results; subscribers_count only
-      // exists on the single-repo GET /repos/{owner}/{repo} endpoint, so
-      // capturing it here would mean one extra GitHub API call per repo per
-      // run — multiplying request volume and risking both GitHub rate limits
-      // and this route's maxDuration. Instead it's captured opportunistically
-      // in lib/activity.ts, which already makes that exact per-repo call
-      // on-demand (12h TTL) when a user visits a repo's detail page, and
-      // writes a snapshot there at zero extra API cost.
-      await db.insert(repoSnapshots).values({
-        repoId: upserted.id,
-        stars: row.stars,
-        forks: row.forks,
-        openIssues: row.openIssues,
-        watchers: row.watchers,
-      });
+    // Fetch real watcher counts (subscribers_count) for every tracked repo,
+    // within a fixed time budget, so watcher history builds uniformly across
+    // all tracked repos rather than only for repos someone happens to view
+    // (see lib/activity.ts for the complementary on-demand path, which still
+    // fills this in on-demand between daily runs for freshly-viewed repos).
+    const subscriberDeadline = Date.now() + SUBSCRIBER_FETCH_BUDGET_MS;
+    const subscriberCounts = await mapWithConcurrency(
+      uniqueItems,
+      SUBSCRIBER_FETCH_CONCURRENCY,
+      subscriberDeadline,
+      (item) => getSubscriberCount(item.owner.login, item.name),
+    );
+
+    const snapshotRows = rows
+      .map((row, i) => {
+        const repoId = idByGithubId.get(uniqueItems[i].id);
+        if (!repoId) return null;
+        return {
+          repoId,
+          stars: row.stars,
+          forks: row.forks,
+          openIssues: row.openIssues,
+          watchers: row.watchers,
+          subscriberCount: subscriberCounts[i],
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    for (const batch of chunk(snapshotRows, DB_BATCH_SIZE)) {
+      await db.insert(repoSnapshots).values(batch);
     }
 
     await db
