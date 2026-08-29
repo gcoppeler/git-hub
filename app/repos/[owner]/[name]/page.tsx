@@ -6,13 +6,13 @@ import {
   GitFork,
   Star,
   Tag,
+  Eye,
   CircleAlert,
   GitCommit,
   Users,
   GitPullRequest,
   GitMerge,
   Clock,
-  Activity,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -90,14 +90,14 @@ export default async function RepoPage({ params }: RepoPageProps) {
         <StatCard label="Stars" value={formatCompactNumber(repo.stars)} icon={Star} />
         <StatCard label="Forks" value={formatCompactNumber(repo.forks)} icon={GitFork} />
         <StatCard
+          label="Watchers"
+          value={formatCompactNumber(activity?.subscriberCount ?? repo.watchers)}
+          icon={Eye}
+        />
+        <StatCard
           label="Open issues"
           value={formatCompactNumber(repo.openIssues)}
           icon={CircleAlert}
-        />
-        <StatCard
-          label="Commits (12w)"
-          value={formatCompactNumber(activity?.commitsLast12Weeks ?? 0)}
-          icon={Activity}
         />
       </div>
 
