@@ -208,4 +208,38 @@ export async function getSubscriberCount(owner: string, repo: string): Promise<n
   }
 }
 
+/**
+ * Runs `fn` over `items` with at most `concurrency` in flight at once, and
+ * stops starting new work once `deadline` (a `Date.now()`-comparable
+ * timestamp) has passed. Used for bulk per-repo GitHub calls during
+ * ingestion, where we want to fetch as much as we can within a time budget
+ * without blowing past a serverless function's `maxDuration` — any items not
+ * reached before the deadline resolve to `null` rather than blocking.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  deadline: number,
+  fn: (item: T) => Promise<R>,
+): Promise<(R | null)[]> {
+  const results: (R | null)[] = new Array(items.length).fill(null);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      if (Date.now() >= deadline) return;
+      const index = nextIndex++;
+      try {
+        results[index] = await fn(items[index]);
+      } catch {
+        results[index] = null;
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 export { GitHubApiError };

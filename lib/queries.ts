@@ -158,6 +158,11 @@ export async function getRepoStarHistory(repoId: number, days = 90) {
       forks: repoSnapshots.forks,
       openIssues: repoSnapshots.openIssues,
       watchers: repoSnapshots.watchers,
+      // Real watcher count (subscribers_count), only populated on snapshots
+      // written from lib/activity.ts's on-demand refresh — null on rows from
+      // the daily bulk cron. Not enough history has accumulated yet to plot;
+      // ready to add as a "Watchers" line in star-history-chart.tsx later.
+      subscriberCount: repoSnapshots.subscriberCount,
     })
     .from(repoSnapshots)
     .where(

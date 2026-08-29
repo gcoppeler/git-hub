@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { repoActivity } from "@/lib/db/schema";
+import { repoActivity, repoSnapshots, repos } from "@/lib/db/schema";
 import {
   getCommitActivityWeeks,
   getContributorCount,
@@ -86,6 +86,32 @@ export async function getActivityForRepo(
     .values(row)
     .onConflictDoUpdate({ target: repoActivity.repoId, set: row })
     .returning();
+
+  // Opportunistically capture a real historical "watchers" (subscribers_count)
+  // data point whenever we actually made a fresh call for it — this reuses
+  // the per-repo GitHub request above instead of adding a new one, so it's
+  // free from a rate-limit perspective. This only happens when a repo detail
+  // page is viewed (and the 12h TTL has expired), so history accumulates
+  // gradually rather than on every daily bulk ingestion run. See the
+  // `subscriberCount` column comment in lib/db/schema.ts.
+  if (subscriberCountResult.status === "fulfilled") {
+    const [repoRow] = await db
+      .select({ stars: repos.stars, forks: repos.forks, openIssues: repos.openIssues, watchers: repos.watchers })
+      .from(repos)
+      .where(eq(repos.id, repoId))
+      .limit(1);
+
+    if (repoRow) {
+      await db.insert(repoSnapshots).values({
+        repoId,
+        stars: repoRow.stars,
+        forks: repoRow.forks,
+        openIssues: repoRow.openIssues,
+        watchers: repoRow.watchers,
+        subscriberCount: subscriberCountResult.value,
+      });
+    }
+  }
 
   return { activity: saved, computing: stillComputing };
 }

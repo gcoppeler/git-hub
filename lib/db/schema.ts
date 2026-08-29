@@ -59,6 +59,17 @@ export const repoSnapshots = pgTable(
     forks: integer("forks").notNull(),
     openIssues: integer("open_issues").notNull(),
     watchers: integer("watchers").notNull(),
+    // Real "watchers" (GitHub's `subscribers_count`), distinct from the
+    // deprecated `watchers` column above (which mirrors star count). Not
+    // available on bulk /search/repositories results, so the daily cron
+    // ingestion (lib/ingest.ts) fetches it per repo with a time-boxed,
+    // concurrency-limited pass; lib/activity.ts also opportunistically fills
+    // it in between runs when a repo's detail page is viewed. Nullable
+    // because a slow run can hit its time budget before reaching every repo.
+    // Not enough history has accumulated yet to plot; once it has, this can
+    // be added as a "Watchers" line alongside Stars/Forks/Open issues in
+    // components/charts/star-history-chart.tsx.
+    subscriberCount: integer("subscriber_count"),
   },
   (table) => [
     index("repo_snapshots_repo_id_idx").on(table.repoId),
