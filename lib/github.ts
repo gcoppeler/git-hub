@@ -136,7 +136,12 @@ export async function getCommitActivityWeeks(
     headers: githubHeaders(),
     cache: "no-store",
   });
-  if (res.status === 202) return null;
+  // GitHub's stats endpoints compute results in the background and can
+  // return 202 while that's in progress. For very large repos they've also
+  // been observed returning a transient 5xx during that same computation
+  // window — treat both the same way ("try again later") rather than
+  // throwing and taking down the whole page over a flaky upstream response.
+  if (res.status === 202 || res.status >= 500) return null;
   if (res.status === 404) return [];
   if (!res.ok) {
     throw new GitHubApiError(`Commit activity request failed (${res.status})`, res.status);
@@ -147,14 +152,14 @@ export async function getCommitActivityWeeks(
 
 /**
  * Returns the contributor count, or `null` if GitHub is still computing it
- * (same 202-while-caching behavior as commit activity).
+ * (same 202/transient-5xx-while-caching behavior as commit activity).
  */
 export async function getContributorCount(owner: string, repo: string): Promise<number | null> {
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/stats/contributors`, {
     headers: githubHeaders(),
     cache: "no-store",
   });
-  if (res.status === 202) return null;
+  if (res.status === 202 || res.status >= 500) return null;
   if (res.status === 404) return 0;
   if (!res.ok) {
     throw new GitHubApiError(`Contributors request failed (${res.status})`, res.status);
@@ -184,6 +189,23 @@ export async function getPullRequestCounts(
     ),
   ]);
   return { open: openResult.total_count, mergedLast30d: mergedResult.total_count };
+}
+
+/**
+ * GitHub's `watchers_count` field (available on search results and used for
+ * bulk ingestion) is a deprecated alias that always mirrors `stargazers_count`.
+ * The real "people watching for notifications" count is `subscribers_count`,
+ * which only exists on the single-repo endpoint — so it can't be picked up
+ * during bulk search-based ingestion and has to be fetched per repo.
+ */
+export async function getSubscriberCount(owner: string, repo: string): Promise<number> {
+  try {
+    const data = await githubFetch<{ subscribers_count: number }>(`/repos/${owner}/${repo}`);
+    return data.subscribers_count;
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 404) return 0;
+    throw error;
+  }
 }
 
 export { GitHubApiError };
