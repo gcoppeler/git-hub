@@ -100,6 +100,10 @@ export const repoActivity = pgTable(
     mergedPullRequestsLast30d: integer("merged_pull_requests_last_30d")
       .notNull()
       .default(0),
+    // The real "watchers" count (GitHub's `subscribers_count`), distinct from
+    // the deprecated `watchers_count` field stored on `repos.watchers`, which
+    // always mirrors star count. See `getSubscriberCount` in lib/github.ts.
+    subscriberCount: integer("subscriber_count").notNull().default(0),
     fetchedAt: timestamp("fetched_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

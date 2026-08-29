@@ -89,7 +89,11 @@ export default async function RepoPage({ params }: RepoPageProps) {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Stars" value={formatCompactNumber(repo.stars)} icon={Star} />
         <StatCard label="Forks" value={formatCompactNumber(repo.forks)} icon={GitFork} />
-        <StatCard label="Watchers" value={formatCompactNumber(repo.watchers)} icon={Eye} />
+        <StatCard
+          label="Watchers"
+          value={formatCompactNumber(activity?.subscriberCount ?? repo.watchers)}
+          icon={Eye}
+        />
         <StatCard
           label="Open issues"
           value={formatCompactNumber(repo.openIssues)}
@@ -100,7 +104,7 @@ export default async function RepoPage({ params }: RepoPageProps) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Star history</CardTitle>
+            <CardTitle className="text-base">History</CardTitle>
           </CardHeader>
           <CardContent>
             <StarHistoryChart data={history} />

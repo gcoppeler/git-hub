@@ -157,6 +157,7 @@ export async function getRepoStarHistory(repoId: number, days = 90) {
       stars: repoSnapshots.stars,
       forks: repoSnapshots.forks,
       openIssues: repoSnapshots.openIssues,
+      watchers: repoSnapshots.watchers,
     })
     .from(repoSnapshots)
     .where(
