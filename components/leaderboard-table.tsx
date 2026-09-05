@@ -1,4 +1,4 @@
-import { Star } from "lucide-react";
+import { CircleAlert, Star } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LanguageBadge } from "@/components/language-badge";
 import { RepoIdentity } from "@/components/repo-identity";
@@ -24,6 +24,7 @@ export function LeaderboardTable({
           <TableHead>Language</TableHead>
           <TableHead className="text-right">Stars</TableHead>
           <TableHead className="text-right">Forks</TableHead>
+          <TableHead className="text-right">Open issues</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -50,6 +51,12 @@ export function LeaderboardTable({
             </TableCell>
             <TableCell className="text-right tabular-nums text-muted-foreground">
               {formatCompactNumber(repo.forks)}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              <span className="inline-flex items-center justify-end gap-1">
+                <CircleAlert className="h-3.5 w-3.5" />
+                {formatCompactNumber(repo.openIssues)}
+              </span>
             </TableCell>
           </TableRow>
         ))}
