@@ -36,6 +36,7 @@ export function LeaderboardTable({
                 name={repo.name}
                 avatarUrl={repo.avatarUrl}
                 description={repo.description}
+                htmlUrl={repo.htmlUrl}
               />
             </TableCell>
             <TableCell>
