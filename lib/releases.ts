@@ -12,7 +12,16 @@ export async function getReleasesForRepo(repoId: number, owner: string, name: st
   const cached = await getRepoReleases(repoId);
   if (cached.length > 0) return cached;
 
-  const fetched = await listReleases(owner, name, 10);
+  let fetched;
+  try {
+    fetched = await listReleases(owner, name, 10);
+  } catch (error) {
+    // Don't take down the whole detail page if GitHub is unreachable or
+    // credentials are bad — show the rest of the page with an empty releases
+    // list and retry on a later visit.
+    console.warn(`Failed to fetch releases for ${owner}/${name}:`, error);
+    return [];
+  }
   if (fetched.length === 0) return [];
 
   const db = getDb();
