@@ -7,7 +7,14 @@ import type { repos } from "@/lib/db/schema";
 
 type Repo = typeof repos.$inferSelect;
 
-export function LeaderboardTable({ repos }: { repos: Repo[] }) {
+export function LeaderboardTable({
+  repos,
+  startRank = 1,
+}: {
+  repos: Repo[];
+  /** 1-based rank of the first row — used so browse pagination keeps counting across pages. */
+  startRank?: number;
+}) {
   return (
     <Table>
       <TableHeader>
@@ -22,7 +29,7 @@ export function LeaderboardTable({ repos }: { repos: Repo[] }) {
       <TableBody>
         {repos.map((repo, index) => (
           <TableRow key={repo.id}>
-            <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+            <TableCell className="text-muted-foreground">{startRank + index}</TableCell>
             <TableCell>
               <RepoIdentity
                 owner={repo.owner}

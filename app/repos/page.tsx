@@ -115,7 +115,7 @@ export default async function ReposPage({ searchParams }: ReposPageProps) {
       <Card>
         <CardContent className="pt-6">
           {rows.length > 0 ? (
-            <LeaderboardTable repos={rows} />
+            <LeaderboardTable repos={rows} startRank={(page - 1) * PAGE_SIZE + 1} />
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
               No repositories match those filters.
