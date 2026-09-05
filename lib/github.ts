@@ -58,11 +58,39 @@ function githubHeaders(): HeadersInit {
   return headers;
 }
 
-async function githubFetch<T>(path: string): Promise<T> {
+function publicGithubHeaders(): HeadersInit {
+  return {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "github-insights-dashboard",
+  };
+}
+
+/**
+ * Fetch a GitHub API path. If a configured GITHUB_TOKEN is rejected (401),
+ * retry once without auth so public data still loads.
+ */
+async function githubRequest(path: string): Promise<Response> {
   const res = await fetch(`${GITHUB_API}${path}`, {
     headers: githubHeaders(),
     cache: "no-store",
   });
+
+  if (res.status === 401 && process.env.GITHUB_TOKEN) {
+    console.warn(
+      `GitHub returned 401 for ${path} — GITHUB_TOKEN looks invalid; retrying without auth.`,
+    );
+    return fetch(`${GITHUB_API}${path}`, {
+      headers: publicGithubHeaders(),
+      cache: "no-store",
+    });
+  }
+
+  return res;
+}
+
+async function githubFetch<T>(path: string): Promise<T> {
+  const res = await githubRequest(path);
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -132,10 +160,7 @@ export async function getCommitActivityWeeks(
   owner: string,
   repo: string,
 ): Promise<number[] | null> {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/stats/commit_activity`, {
-    headers: githubHeaders(),
-    cache: "no-store",
-  });
+  const res = await githubRequest(`/repos/${owner}/${repo}/stats/commit_activity`);
   // GitHub's stats endpoints compute results in the background and can
   // return 202 while that's in progress. For very large repos they've also
   // been observed returning a transient 5xx during that same computation
@@ -155,10 +180,7 @@ export async function getCommitActivityWeeks(
  * (same 202/transient-5xx-while-caching behavior as commit activity).
  */
 export async function getContributorCount(owner: string, repo: string): Promise<number | null> {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/stats/contributors`, {
-    headers: githubHeaders(),
-    cache: "no-store",
-  });
+  const res = await githubRequest(`/repos/${owner}/${repo}/stats/contributors`);
   if (res.status === 202 || res.status >= 500) return null;
   if (res.status === 404) return 0;
   if (!res.ok) {
